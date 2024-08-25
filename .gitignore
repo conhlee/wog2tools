@@ -1,0 +1,11 @@
+res.goo
+res/
+
+imagetool/imagetool
+*.o
+
+*.image
+*.tga
+*.png
+*.bmp
+*.jpg
