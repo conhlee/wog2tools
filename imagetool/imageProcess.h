@@ -8,7 +8,12 @@
 
 #include <zstd.h>
 
-#include <GL/gl.h>
+// GL(EXT) definitions
+#define GL_RGBA       0x1908
+
+#define GL_RGB4_EXT   0x804F
+#define GL_RGBA8_EXT  0x8058
+#define GL_RGBA16_EXT 0x805B
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb/stb_image_write.h"
