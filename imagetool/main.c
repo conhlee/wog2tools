@@ -87,6 +87,12 @@ int main(int argc, char* argv[]) {
         u64 imageSize = ftell(fpImage);
         rewind(fpImage);
 
+        if (imageSize == 0) {
+            fclose(fpImage);
+            
+            panic("The image binary is empty.");
+        }
+
         u8* imageBuf = (u8 *)malloc(imageSize);
         if (imageBuf == NULL) {
             fclose(fpImage);
