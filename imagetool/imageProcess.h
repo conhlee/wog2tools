@@ -1,5 +1,5 @@
-#ifndef CTPKPROCESS_H
-#define CTPKPROCESS_H
+#ifndef IMAGEPROCESS_H
+#define IMAGEPROCESS_H
 
 #include <stdio.h>
 #include <stdlib.h>
