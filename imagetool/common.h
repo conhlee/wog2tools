@@ -29,6 +29,10 @@ void panic(const char* msg) {
     exit(1);
 }
 
+void warn(const char* msg) {
+    printf("\nWARN: %s\n", msg);
+}
+
 u16 bitLength(u16 value) {
     u16 length = 0;
     while (value > 0) {
