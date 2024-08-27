@@ -4,7 +4,7 @@ This repository contains tools for working with World of Goo 2 assets. The curre
 
 ## Image Tool
 
-**Image Tool** is a utility for extracting or creating texture files for World of Goo 2.
+**Image Tool** is a utility for extracting and creating texture files for World of Goo 2.
 
 ### Features:
 - **Extract Textures:** Convert `.image` files to standard image formats.
@@ -16,7 +16,10 @@ This repository contains tools for working with World of Goo 2 assets. The curre
 
 ### Usage:
 ```bash
-imagetool [options] <input_path> <output_path>
+imagetool -e <input_image_file> -o <output_image_file>
+```
+```bash
+imagetool -c <input_image_file> -o <output_image_file> [-m <mask_image_file>]
 ```
 
 ### Example Commands:
@@ -27,6 +30,10 @@ imagetool [options] <input_path> <output_path>
 - Create an image file:
   ```bash
   imagetool -c ./sample.png -o ./sample.image
+  ```
+- Create an image file with a mask:
+  ```bash
+  imagetool -c ./sample.png -m ./samplemask.png -o ./sample.image
   ```
 
 ### License:
