@@ -55,6 +55,9 @@ int main(int argc, char* argv[]) {
     
     unsigned command = COMMAND_BAD;
 
+    if (argc == 1)
+        usage(1);
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
             usage(1);
