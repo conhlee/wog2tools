@@ -10,8 +10,8 @@
 
 void usage(int showTitle) {
     if (showTitle) {
-        printf("Image Tool v1.0\n");
-        printf("A utility for extracting or creating texture files for World of Goo 2.\n\n");
+        printf("Image Tool v1.1\n");
+        printf("A utility for extracting and creating texture files for World of Goo 2.\n\n");
     }
 
     printf("Usage:\n");
