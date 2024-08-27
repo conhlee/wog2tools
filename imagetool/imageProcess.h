@@ -45,9 +45,11 @@ typedef struct __attribute__((packed)) {
     u32 compressedDataSize;
     u32 decompressedDataSize;
 
-    u32 _unk18;
-    u32 _unk1C;
-    u32 _unk20;
+    u16 maskWidth;
+    u16 maskHeight;
+
+    u32 maskCompressedDataSize;
+    u32 maskDecompressedDataSize;
 
     u8 headerEnd[0];
 } ImageFileHeader;
@@ -195,6 +197,14 @@ KTXLevel* KTXGetLevel(u8* ktxData, u32 mipIndex) {
     return (KTXLevel*)ptr;
 }
 
+int ImageGetMaskExists(u8* imageData) {
+    return ((ImageFileHeader*)imageData)->maskDecompressedDataSize != 0;
+}
+
+u16* ImageGetMaskSize(u8* imageData) {
+    return &((ImageFileHeader*)imageData)->maskWidth;
+}
+
 // Must be freed after creation
 u8* ImageCreateKTXData(u8* imageData) {
     ImageFileHeader* fileHeader = (ImageFileHeader*)imageData;
@@ -204,11 +214,11 @@ u8* ImageCreateKTXData(u8* imageData) {
     if (memcmp((u32*)&fileHeader->width, (u32*)&fileHeader->_width, sizeof(u32)) != 0)
         panic("Image header sizes are nonmatching");
 
-    printf("Alloc decompress buffer (size : %u) ..", fileHeader->decompressedDataSize);
+    printf("Alloc KTX decompress buffer (size : %u) ..", fileHeader->decompressedDataSize);
 
     u8* ktxData = (u8*)malloc(fileHeader->decompressedDataSize);
     if (ktxData == NULL)
-        panic("Failed to allocate memory (decompressed buffer)");
+        panic("Failed to allocate memory (KTX decompressed buffer)");
 
     LOG_OK;
 
@@ -229,6 +239,53 @@ u8* ImageCreateKTXData(u8* imageData) {
     KTXPreprocess(ktxData);
 
     return ktxData;
+}
+
+// A8 image data
+// Must be freed after creation
+u8* ImageCreateMaskData(u8* imageData) {
+    ImageFileHeader* fileHeader = (ImageFileHeader*)imageData;
+    if (fileHeader->magic != IMAGE_MAGIC)
+        panic("Image header magic is nonmatching");
+
+    /*
+    if (memcmp((u32*)&fileHeader->width, (u32*)&fileHeader->_width, sizeof(u32)) != 0)
+        panic("Image header sizes are nonmatching");
+    */
+
+    if (fileHeader->maskDecompressedDataSize == 0)
+        panic("Mask does not exist");
+
+    if (
+        fileHeader->maskDecompressedDataSize !=
+            fileHeader->maskWidth * fileHeader->maskHeight
+    )
+        panic("Unexpected mask data size");
+
+    printf("Alloc mask decompress buffer (size : %u) ..", fileHeader->maskDecompressedDataSize);
+
+    u8* maskData = (u8*)malloc(fileHeader->maskDecompressedDataSize);
+    if (maskData == NULL)
+        panic("Failed to allocate memory (mask decompressed buffer)");
+
+    LOG_OK;
+
+    printf("Decompressing ..");
+
+    u64 zstdResult = ZSTD_decompress(
+        maskData, fileHeader->maskDecompressedDataSize,
+        fileHeader->headerEnd + fileHeader->compressedDataSize,
+        fileHeader->maskCompressedDataSize
+    );
+
+    if (ZSTD_isError(zstdResult)) {
+        free(maskData);
+        panic("Decompression error");
+    }
+
+    LOG_OK;
+
+    return maskData;
 }
 
 // Image data must be RGBA8
@@ -336,34 +393,69 @@ u8* KTXCreate(u8* imageData, u16 imageWidth, u16 imageHeight, u32* ktxSizeOut) {
 }
 
 // Must be freed after creation
-u8* ImageCreate(u8* ktxData, u32 ktxSize, u32* imageSizeOut) {
-    u64 maxCompressedSize = ZSTD_compressBound(ktxSize);
+u8* ImageCreate(u8* ktxData, u32 ktxSize, u8* maskData, u16 maskWidth, u16 maskHeight, u32* imageSizeOut) {
+    u8* ktxCompressedBuf;
+    u64 ktxCompressedSize;
 
-    printf("Alloc COMPRESS buffer (size : %lu) ..", maxCompressedSize);
-    u8* compressedBuf = (u8*)malloc(maxCompressedSize);
-    if (compressedBuf == NULL)
-        panic("Failed to allocate memory (compressed buffer)");
+    u8* maskCompressedBuf = NULL;
+    u64 maskCompressedSize = 0;
 
-    LOG_OK;
+    // KTX compression
+    {
+        u64 maxCompressedSize = ZSTD_compressBound(ktxSize);
 
-    printf("Compressing ..");
+        printf("Alloc KTX compress buffer (size : %lu) ..", maxCompressedSize);
+        ktxCompressedBuf = (u8*)malloc(maxCompressedSize);
+        if (ktxCompressedBuf == NULL)
+            panic("Failed to allocate memory (KTX compressed buffer)");
 
-    u64 zstdResult = ZSTD_compress(
-        compressedBuf, maxCompressedSize,
-        ktxData, ktxSize,
-        RECOMPRESS_LVL
-    );
+        LOG_OK;
 
-    if (ZSTD_isError(zstdResult)) {
-        free(compressedBuf);
-        panic("ZSTD compress failed");
+        printf("Compressing KTX data ..");
+
+        ktxCompressedSize = ZSTD_compress(
+            ktxCompressedBuf, maxCompressedSize,
+            ktxData, ktxSize,
+            RECOMPRESS_LVL
+        );
+
+        if (ZSTD_isError(ktxCompressedSize)) {
+            free(ktxCompressedBuf);
+            panic("ZSTD compress failed");
+        }
+
+        LOG_OK;
     }
 
-    LOG_OK;
+    if (maskData) {
+        u64 maxCompressedSize = ZSTD_compressBound(maskWidth * maskHeight);
 
-    u64 fullSize = sizeof(ImageFileHeader) + zstdResult;
+        printf("Alloc mask compress buffer (size : %lu) ..", maxCompressedSize);
+        maskCompressedBuf = (u8*)malloc(maxCompressedSize);
+        if (maskCompressedBuf == NULL)
+            panic("Failed to allocate memory (mask compressed buffer)");
 
-    printf("Alloc IMAGE buffer (size : %lu) ..", fullSize);
+        LOG_OK;
+
+        printf("Compressing mask data ..");
+
+        maskCompressedSize = ZSTD_compress(
+            maskCompressedBuf, maxCompressedSize,
+            maskData, maskWidth * maskHeight,
+            RECOMPRESS_LVL
+        );
+
+        if (ZSTD_isError(maskCompressedSize)) {
+            free(maskCompressedBuf);
+            panic("ZSTD compress failed");
+        }
+
+        LOG_OK;
+    }
+
+    u64 fullSize = sizeof(ImageFileHeader) + ktxCompressedSize + maskCompressedSize;
+
+    printf("Alloc image binary buffer (size : %lu) ..", fullSize);
 
     u8* imageData = (u8*)malloc(fullSize);
     if (imageData == NULL)
@@ -375,8 +467,16 @@ u8* ImageCreate(u8* ktxData, u32 ktxSize, u32* imageSizeOut) {
 
     printf("Copying compressed data ..");
 
-    memcpy(fileHeader->headerEnd, compressedBuf, zstdResult);
-    free(compressedBuf);
+    memcpy(fileHeader->headerEnd, ktxCompressedBuf, ktxCompressedSize);
+    free(ktxCompressedBuf);
+
+    if (maskCompressedBuf) {
+        memcpy(
+            fileHeader->headerEnd + ktxCompressedSize,
+            maskCompressedBuf, maskCompressedSize
+        );
+        free(maskCompressedBuf);
+    }
 
     LOG_OK;
 
@@ -384,7 +484,7 @@ u8* ImageCreate(u8* ktxData, u32 ktxSize, u32* imageSizeOut) {
 
     fileHeader->version = IMAGE_VERSION;
 
-    fileHeader->compressedDataSize = zstdResult;
+    fileHeader->compressedDataSize = ktxCompressedSize;
     fileHeader->decompressedDataSize = ktxSize;
 
     KTXHeader* ktxHeader = (KTXHeader*)ktxData;
@@ -394,9 +494,10 @@ u8* ImageCreate(u8* ktxData, u32 ktxSize, u32* imageSizeOut) {
     fileHeader->height = ktxHeader->pixelHeight;
     fileHeader->_height = ktxHeader->pixelHeight;
 
-    fileHeader->_unk18 = 0x00000000;
-    fileHeader->_unk1C = 0x00000000;
-    fileHeader->_unk20 = 0x00000000;
+    fileHeader->maskWidth = maskWidth;
+    fileHeader->maskHeight = maskHeight;
+    fileHeader->maskCompressedDataSize = maskCompressedSize;
+    fileHeader->maskDecompressedDataSize = maskWidth * maskHeight;
 
     if (imageSizeOut != NULL)
         *imageSizeOut = fullSize;
@@ -422,6 +523,7 @@ void ImageExportTexture(u8* imageData, char* outputPath) {
 
             (int)(strlen(outputPath) - strlen(fileExtension) - 1),
             outputPath,
+
             i+1,
             fileExtension
         );
@@ -468,6 +570,34 @@ void ImageExportTexture(u8* imageData, char* outputPath) {
 
         if (writeResult == 0)
             panic("The output image could not be created.");
+
+        LOG_OK;
+    }
+
+    if (ImageGetMaskExists(imageData)) {
+        u8* maskData = ImageCreateMaskData(imageData);
+        u16* maskSize = ImageGetMaskSize(imageData);
+
+        char fn[128];
+        sprintf(
+            fn, "%.*s.mask.png",
+
+            (int)(strlen(outputPath) - strlen(fileExtension) - 1),
+            outputPath
+        );
+
+
+        printf("Writing mask data to path '%s'..", fn);
+
+        int writeResult = stbi_write_png(
+            fn,
+            maskSize[0], maskSize[1],
+            1, maskData,
+            1 * maskSize[0]
+        );
+        
+        if (writeResult == 0)
+            panic("The mask data could not be exported.");
 
         LOG_OK;
     }

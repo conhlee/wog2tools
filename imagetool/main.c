@@ -14,25 +14,32 @@ void usage(int showTitle) {
         printf("A utility for extracting or creating texture files for World of Goo 2.\n\n");
     }
 
-    printf("Usage: imagetool [options] <input_path> <output_path>\n\n");
-
-    printf("Arguments:\n");
-    printf("  <input_path>        The path to the input file.\n");
-    printf("                      For extraction, this should be a .image file.\n");
-    printf("                      For creation, this should be an image file (.png, .bmp, .tga, .psd, .jpg).\n");
-    printf("  <output_path>       The path where the output file will be saved.\n");
-    printf("                      Specify a valid path with the desired output format (.png, .bmp, .tga, .jpg).\n\n");
+    printf("Usage:\n");
+    printf("    imagetool -e <input_image_file> -o <output_image_file>\n");
+    printf("    imagetool -c <input_image_file> -o <output_image_file> [-m <mask_image_file>]\n\n");
 
     printf("Options:\n");
-    printf("  -e, --extract       Extract textures from an .image file.\n");
-    printf("  -c, --create        Create a .image file from an input image.\n");
-    printf("  -o, --output <path> Specify the output path (required). Refer to the output_path argument.\n");
-    printf("  -h, --help          Display this help message and exit.\n\n");
+    printf("    -e, --extract        Extract textures from a .image file.\n");
+    printf("                         <input_image_file>: Path to the .image file.\n");
+    printf("                         <output_image_file>: Path for the extracted image with desired format (.png, .bmp, .tga, .jpg).\n\n");
+
+    printf("    -c, --create         Create a .image file from an input image.\n");
+    printf("                         <input_image_file>: Path to the source image (.png, .bmp, .tga, .psd, .jpg).\n");
+    printf("                         <output_image_file>: Path for the created .image file.\n\n");
+
+    printf("    -o, --output <path>  Specify the output path (required).\n\n");
+
+    printf("    -m, --mask <path>    Optional: Specify a mask image when creating a .image file.\n");
+    printf("                         Supported formats: .png, .bmp, .tga, .psd, .jpg.\n");
+    printf("                         The mask image should use luminance (black = 0, white = 1).\n\n");
+
+    printf("    -h, --help           Display this help message and exit.\n\n");
 
     printf("Examples:\n");
-    printf("  imagetool -e ./sample.image -o ./sample.png\n");
-    printf("  imagetool -c ./sample.png -o ./sample.image\n");
-    printf("  imagetool --help\n");
+    printf("    Extract:           imagetool -e ./sample.image -o ./sample.png\n");
+    printf("    Create:            imagetool -c ./sample.png -o ./sample.image\n");
+    printf("    Create with mask:  imagetool -c ./sample.png -o ./sample.image -m ./sample_mask.png\n");
+    printf("    Show help:         imagetool --help\n");
 
     exit(1);
 }
@@ -44,6 +51,8 @@ void usage(int showTitle) {
 int main(int argc, char* argv[]) {
     char* inputPath = NULL;
     char* outputPath = NULL;
+    char* maskPath = NULL;
+    
     unsigned command = COMMAND_BAD;
 
     for (int i = 1; i < argc; i++) {
@@ -58,6 +67,14 @@ int main(int argc, char* argv[]) {
                 outputPath = argv[++i];
             else {
                 printf("Error: Missing output path after '%s'.\n\n", argv[i]);
+                usage(0);
+            }
+        }
+        else if (strcmp(argv[i], "--mask") == 0 || strcmp(argv[i], "-m") == 0) {
+            if (i+1 < argc)
+                maskPath = argv[++i];
+            else {
+                printf("Error: Missing mask path after '%s'.\n\n", argv[i]);
                 usage(0);
             }
         }
@@ -77,6 +94,9 @@ int main(int argc, char* argv[]) {
 
     switch (command) {
     case COMMAND_EXTRACT: {
+        if (maskPath != NULL)
+            warn("A mask has been provided in extract mode. The mask will not be used.");
+
         printf("Read & copy image binary ..");
 
         FILE* fpImage = fopen(inputPath, "rb");
@@ -89,7 +109,7 @@ int main(int argc, char* argv[]) {
 
         if (imageSize == 0) {
             fclose(fpImage);
-            
+
             panic("The image binary is empty.");
         }
 
@@ -120,22 +140,32 @@ int main(int argc, char* argv[]) {
 
         int imageWidth;
         int imageHeight;
-        int imageChannels;
 
-        u8* inputData = stbi_load(inputPath, &imageWidth, &imageHeight, &imageChannels, 4);
+        u8* inputData = stbi_load(inputPath, &imageWidth, &imageHeight, NULL, 4);
         if (inputData == NULL)
             panic("The input image file could not be opened.");
 
-        if (imageChannels != 4)
-            panic("The input image could not be converted to RGBA8.");
-
         LOG_OK;
+
+        int maskWidth = 0;
+        int maskHeight = 0;
+        u8* maskData = NULL;
+
+        if (maskPath) {
+            maskData = stbi_load(maskPath, &maskWidth, &maskHeight, NULL, 1);
+            if (maskData == NULL)
+                panic("The input mask image could not be opened.");
+        }
 
         u32 ktxSize;
         u8* ktxData = KTXCreate(inputData, imageWidth, imageHeight, &ktxSize);
 
         u32 imageSize;
-        u8* imageData = ImageCreate(ktxData, ktxSize, &imageSize);
+        u8* imageData = ImageCreate(
+            ktxData, ktxSize,
+            maskData, (u16)maskWidth, (u16)maskHeight,
+            &imageSize
+        );
 
         printf("Write IMAGE to file ..");
 
@@ -153,6 +183,8 @@ int main(int argc, char* argv[]) {
         free(imageData);
 
         stbi_image_free(inputData);
+        if (maskData)
+            stbi_image_free(maskData);
     } break;
     
     default:
